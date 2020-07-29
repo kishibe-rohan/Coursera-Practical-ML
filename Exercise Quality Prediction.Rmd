@@ -1,0 +1,133 @@
+---
+title: "Exercise Quality Prediction"
+author: "Kishibe Rohan"
+date: "17/07/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+*made with knitr*
+
+## Overview
+Using devices such as *Jawbone Up*, *Nike FuelBand*, and *Fitbit* it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. \
+
+One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, we will use data from accelerometers on the belt, forearm, arm, and dumbbell of 6 participants to predict the manner of exercise. 
+
+**Note**: The dataset used in this project is a courtesy of “Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers’ Data Classification of Body Postures and Movements”
+
+## Data Loading and Preprocessing
+
+```{r}
+#Load required libraries
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(RColorBrewer)
+library(rattle)
+library(randomForest)
+library(gbm)
+library(corrplot)
+```
+
+### Getting and Cleaning Data
+```{r}
+trainDT <- read.csv('pml-training.csv',header=TRUE)
+validDT <- read.csv('pml-testing.csv',header=TRUE)
+
+#Remove the variables containing missing values
+trainData <- trainDT[,colSums(is.na(trainDT))==0]
+validData <- validDT[,colSums(is.na(validDT))==0]
+
+#Remove the first 7 variables as they do not impact the output
+trainData <- trainData[,-c(1:7)]
+validData <- validData[,-c(1:7)]
+
+```
+
+```{r}
+dim(trainData)
+dim(validData)
+```
+
+### Split into train and test set
+```{r}
+set.seed(1234)               #for reproducibilty
+inTrain <- createDataPartition(trainData$classe,p=0.7,list=FALSE)
+trainData <- trainData[inTrain,]
+testData  <- trainData[-inTrain,]
+
+#Remove variables that have near zero variance
+nearZeroVariance <- nearZeroVar(trainData)
+trainData <- trainData[,-nearZeroVariance]
+testData  <- testData[,-nearZeroVariance]
+```
+
+```{r}
+dim(trainData)
+dim(testData)
+```
+
+## Correlation between variables
+
+### Correlation Matrix Visualization
+```{r}
+corrPlot <- cor(trainData[,-53])
+corrplot(corrPlot,order="FPC",method="color",tl.cex = 0.7)
+```
+
+The correlted variables are those that have a dark color intersection.
+
+### Obtain the correlated variables
+```{r}
+#Obtain the variables with correlation with a cut off equal to 0.75
+
+correlated <- findCorrelation(corrPlot,cutoff = 0.75)
+names(trainData)[correlated]
+```
+
+## Model Building
+
+First,we will use the Random Forest algorithm and then compare it with a Generalized Boosted Model to decide the better model for the data.
+
+### Random Forest
+```{r}
+controlRF <- trainControl(method="cv",number=5,verboseIter = FALSE)
+modelRF <- train(classe ~ . ,data=trainData,method="rf",trControl=controlRF,ntree=5 )
+modelRF$finalModel
+
+```
+
+Validate the model on the test data to find out its accuracy.
+
+```{r}
+predictRF <- predict(modelRF,newdata = testData)
+confusionMatrix(predictRF,as.factor(testData$classe))
+```
+
+The accuracy rate using random forest is **0.9993** and the out-of-sample error is *0.0007*
+
+### Generalized Boosted Regression
+```{r,results='hide'}
+set.seed(1234)
+controlGBM <- trainControl(method="repeatedcv",number = 3,repeats = 1)
+modelGBM <- train(classe ~ . ,data=trainData,method="gbm",trControl=controlGBM)
+modelGBM$finalModel
+```
+```{r}
+print(modelGBM)
+```
+Validate the model on the test data to find out its accuracy.
+
+```{r}
+predictGBM <- predict(modelGBM,newdata = testData)
+confusionMatrix(predictGBM, as.factor(testData$classe))
+```
+
+Accuracy rate for GBM is *0.974* and hence the out-of-sample error is: *0.026*
+
+## Predict for Test Data
+```{r}
+result <- predict(modelRF,newdata = validData)
+result
+```
